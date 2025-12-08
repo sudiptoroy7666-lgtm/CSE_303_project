@@ -11,47 +11,42 @@ import plotly.express as px
 from pathlib import Path
 from io import StringIO
 
-st.set_page_config(layout='wide', page_title='Workload & Mental Health Dashboard')
+import os
+import re
+import subprocess
+import sys
 
-st.title('CSE303 — Workload vs Mental Health (Interactive Dashboard)')
-st.markdown('Upload your cleaned CSV exported from the Colab notebook, or use the default `cleaned_survey_data.csv` if present in the same folder as this app.')
+# --- Google Drive CSV link ---
+GOOGLE_DRIVE_LINK = "https://drive.google.com/file/d/1KLnVKougQauelIE9_83vr9uiZreArfoJ/view?usp=drive_link"
+OUTPUT_FILENAME = "cleaned_survey_data.csv"
+DATA_DIR = "./data"
+os.makedirs(DATA_DIR, exist_ok=True)
+CSV_LOCAL_PATH = os.path.join(DATA_DIR, OUTPUT_FILENAME)
 
-# Helper to attempt to find cleaned file from common locations
-DEFAULT_CANDIDATES = [
-    'cleaned_survey_data.csv',
-    './data/cleaned_survey_data.csv',
-    './data/cleaned_survey_data.csv',
-    './cleaned_survey_data.csv'
-]
+# Extract file ID
+def extract_drive_id(url):
+    match = re.search(r'/d/([^/]+)', url)
+    if match: return match.group(1)
+    match = re.search(r'[?&]id=([^&]+)', url)
+    if match: return match.group(1)
+    raise ValueError("Invalid Google Drive link")
 
-@st.cache_data
-def load_csv_from_path(path):
-    return pd.read_csv(path)
+DRIVE_FILE_ID = extract_drive_id(GOOGLE_DRIVE_LINK)
 
-# File uploader or use default
-uploaded = st.file_uploader('Upload cleaned CSV (recommended)', type=['csv'])
-use_default = False
-if uploaded is None:
-    # try to locate default
-    found = None
-    for p in DEFAULT_CANDIDATES:
-        if Path(p).exists():
-            found = p
-            break
-    if found:
-        st.sidebar.success(f'Found cleaned file at: {found}')
-        use_default = st.sidebar.button('Load default cleaned_survey_data.csv')
-        if use_default:
-            df = load_csv_from_path(found)
-    else:
-        st.info('No default CSV found. Upload one using the file uploader on the top.')
-        df = None
-else:
-    # read uploaded
-    df = pd.read_csv(uploaded)
+# Install gdown if not present
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "gdown"], check=True)
+import gdown
 
-if df is None:
-    st.stop()
+# Download file if not exists
+if not os.path.exists(CSV_LOCAL_PATH):
+    print(f"Downloading CSV from Drive: {CSV_LOCAL_PATH}")
+    gdown.download(id=DRIVE_FILE_ID, output=CSV_LOCAL_PATH, quiet=False)
+
+# Load the CSV
+import pandas as pd
+df = pd.read_csv(CSV_LOCAL_PATH)
+
+
 
 st.sidebar.header('Preview & sanitization')
 if st.sidebar.checkbox('Show raw preview', value=False):
