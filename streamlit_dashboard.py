@@ -134,12 +134,28 @@ with col1:
         st.plotly_chart(fig, use_container_width=True)
 
     # Scatter with trendline
-    st.markdown('**Scatter with regression line**')
-    x = st.selectbox('X variable', options=num_cols, index=0)
-    y = st.selectbox('Y variable', options=[c for c in num_cols if c!=x], index=1 if len(num_cols)>1 else 0)
+st.markdown('**Scatter with regression line**')
+
+# X variable selection
+x = st.selectbox('X variable', options=num_cols, index=0)
+
+# Compute Y options safely (exclude X)
+y_options = [c for c in num_cols if c != x]
+
+if not y_options:
+    st.warning("Not enough numeric columns to plot scatter. Add more numeric columns.")
+    y = None
+else:
+    # Ensure index is valid
+    y_index = 0 if len(y_options) <= 1 else 1
+    y = st.selectbox('Y variable', options=y_options, index=y_index)
+
+# Only plot if both x and y exist
+if y:
     color_opt = 'year_of_study' if 'year_of_study' in df_f.columns else None
     fig2 = px.scatter(df_f, x=x, y=y, color=color_opt, trendline='ols', title=f'{y} vs {x}')
     st.plotly_chart(fig2, use_container_width=True)
+
 
     # Boxplot by group
     st.markdown('**Boxplot by group**')
