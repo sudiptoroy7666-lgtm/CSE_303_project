@@ -6,5 +6,6 @@ statsmodels
 scipy
 streamlit
 plotly
+gdown
 
 
