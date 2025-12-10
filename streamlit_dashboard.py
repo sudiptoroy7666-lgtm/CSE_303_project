@@ -30,7 +30,7 @@ st.markdown("Upload cleaned CSV, or let the app load a default local file. Dashb
 
 # ---------------- Config ----------------
 DEFAULT_LOCAL = Path("./data/cleaned_survey_data.csv")
-GOOGLE_DRIVE_LINK = "https://drive.google.com/file/d/15ePA4xoQL7-vsnAJjkOeDZx5csr5Afk2/view?usp=drive_link"
+GOOGLE_DRIVE_LINK = "https://drive.google.com/drive/u/0/folders/1BMz3m9qfbdnTElgpqW4ciIIlqxrVxpvh"
 
 def extract_drive_id(url: str):
     if not isinstance(url, str):
