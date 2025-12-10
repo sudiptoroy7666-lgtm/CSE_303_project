@@ -26,8 +26,8 @@ import matplotlib.pyplot as plt
 
 # ---------------- Streamlit Page ----------------
 st.set_page_config(layout="wide", page_title="Workload & Mental Health Dashboard")
-st.title("CSE303 — Workload vs Mental Health")
-st.markdown("Upload a cleaned CSV, or let the app load a default dataset. Dashboard includes diagnostics, model fitting, CV, and export options.")
+st.title("CSE303 — Group 3 project dashboard")
+
 
 # ---------------- Config ----------------
 DEFAULT_LOCAL = Path("./data/cleaned_survey_data.csv")
