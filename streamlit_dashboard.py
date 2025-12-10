@@ -138,7 +138,7 @@ def clean_transform(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # ---------------- Load Data ----------------
-uploaded = st.file_uploader("Upload cleaned CSV", type=["csv"])
+uploaded = st.file_uploader("Upload CSV file if there is s a issue in drive", type=["csv"])
 df = None
 load_msg = ""
 
