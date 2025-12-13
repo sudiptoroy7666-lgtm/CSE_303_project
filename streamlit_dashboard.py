@@ -7,6 +7,7 @@ Features:
 - Interactive visualizations: correlation, scatter w/ trendline, boxplots
 - Filters with counts, sample warnings
 - Regression modeling & diagnostics (OLS, robust SEs, VIF, residuals)
+- Advanced modeling with feature engineering for better R² (Ridge, Lasso, interaction terms)
 - Export filtered data & model summary
 """
 
@@ -16,12 +17,14 @@ import numpy as np
 import re
 from pathlib import Path
 import plotly.express as px
+import plotly.graph_objects as go
 import statsmodels.formula.api as smf
 import statsmodels.api as sm
 from statsmodels.stats.outliers_influence import variance_inflation_factor
-from sklearn.model_selection import train_test_split, KFold, cross_val_score
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split, KFold, cross_val_score, GridSearchCV
+from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 import matplotlib.pyplot as plt
 
 # ---------------- Streamlit Page ----------------
@@ -59,6 +62,155 @@ def download_drive_and_load(path_str: str, file_id: str):
     if not Path(path_str).exists():
         raise FileNotFoundError("Failed to download from Google Drive.")
     return pd.read_csv(path_str)
+
+# ============ FEATURE ENGINEERING FOR BETTER R² ============
+def create_advanced_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Create interaction and polynomial features to improve model fit"""
+    df = df.copy()
+    
+    # Interaction terms
+    if 'study_hours_per_week' in df.columns and 'sleep_hours' in df.columns:
+        df['study_sleep_interaction'] = df['study_hours_per_week'] * df['sleep_hours']
+    
+    if 'job_hours_per_week' in df.columns and 'study_hours_per_week' in df.columns:
+        df['job_study_interaction'] = df['job_hours_per_week'] * df['study_hours_per_week']
+    
+    # Sleep quality interactions
+    if 'sleep_hours' in df.columns and 'sleep_quality_1to10' in df.columns:
+        df['sleep_quality_hours_interaction'] = df['sleep_hours'] * df['sleep_quality_1to10']
+    
+    # Sleep deficit indicator
+    if 'sleep_hours' in df.columns:
+        df['sleep_deficit'] = (df['sleep_hours'] < 6).astype(int)
+        df['sleep_squared'] = df['sleep_hours'] ** 2
+    
+    # Total workload
+    workload_cols = ['study_hours_per_week', 'job_hours_per_week', 'extra_hours_per_week']
+    available_workload = [c for c in workload_cols if c in df.columns]
+    if len(available_workload) >= 2:
+        df['total_workload'] = df[available_workload].sum(axis=1)
+    
+    # Low sleep quality indicator
+    if 'sleep_quality_1to10' in df.columns:
+        df['low_sleep_quality'] = (df['sleep_quality_1to10'] < 6).astype(int)
+    
+    return df
+
+# ============ FEATURE SELECTION FOR BETTER R² ============
+def select_best_predictors(df: pd.DataFrame, target: str, candidate_predictors: list, max_features: int = 8) -> list:
+    """Use correlation to select best predictors and remove multicollinearity"""
+    df_clean = df[[target] + candidate_predictors].dropna()
+    
+    if df_clean.shape[0] < 10:
+        return candidate_predictors
+    
+    # Calculate correlations with target
+    correlations = df_clean[candidate_predictors].corrwith(df_clean[target]).abs().sort_values(ascending=False)
+    
+    # Select features by correlation and VIF
+    selected = []
+    for feat in correlations.index:
+        if len(selected) >= max_features:
+            break
+        test_features = selected + [feat]
+        if len(test_features) <= 2:
+            selected.append(feat)
+        else:
+            test_df = df_clean[test_features].fillna(0)
+            test_x = sm.add_constant(test_df)
+            try:
+                vifs = [variance_inflation_factor(test_x.values, i) for i in range(test_x.shape[1])]
+                if max(vifs[1:]) < 5:
+                    selected.append(feat)
+            except:
+                selected.append(feat)
+    
+    return selected
+
+# ============ ADVANCED MULTI-MODEL FITTING ============
+def fit_multiple_models_advanced(df: pd.DataFrame, target: str, predictors: list):
+    """Fit OLS, Ridge, and Lasso models with scaling"""
+    df_clean = df[[target] + predictors].dropna()
+    
+    if df_clean.shape[0] < (len(predictors) + 5):
+        return None
+    
+    X = df_clean[predictors].values
+    y = df_clean[target].values
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    # Scale features
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    
+    results = {}
+    
+    # OLS Model
+    lr = LinearRegression()
+    lr.fit(X_train_scaled, y_train)
+    y_pred_ols = lr.predict(X_test_scaled)
+    results['OLS'] = {
+        'r2': r2_score(y_test, y_pred_ols),
+        'rmse': np.sqrt(mean_squared_error(y_test, y_pred_ols)),
+        'mae': mean_absolute_error(y_test, y_pred_ols),
+        'model': lr,
+        'y_pred': y_pred_ols
+    }
+    
+    # Ridge Regression with GridSearch
+    try:
+        ridge_params = {'alpha': [0.001, 0.01, 0.1, 1, 10, 100]}
+        ridge = GridSearchCV(Ridge(), ridge_params, cv=5, scoring='r2')
+        ridge.fit(X_train_scaled, y_train)
+        y_pred_ridge = ridge.predict(X_test_scaled)
+        results['Ridge'] = {
+            'r2': r2_score(y_test, y_pred_ridge),
+            'rmse': np.sqrt(mean_squared_error(y_test, y_pred_ridge)),
+            'mae': mean_absolute_error(y_test, y_pred_ridge),
+            'best_alpha': ridge.best_params_['alpha'],
+            'model': ridge.best_estimator_,
+            'y_pred': y_pred_ridge
+        }
+    except:
+        pass
+    
+    # Lasso Regression with GridSearch
+    try:
+        lasso_params = {'alpha': [0.0001, 0.001, 0.01, 0.1, 1]}
+        lasso = GridSearchCV(Lasso(max_iter=10000), lasso_params, cv=5, scoring='r2')
+        lasso.fit(X_train_scaled, y_train)
+        y_pred_lasso = lasso.predict(X_test_scaled)
+        results['Lasso'] = {
+            'r2': r2_score(y_test, y_pred_lasso),
+            'rmse': np.sqrt(mean_squared_error(y_test, y_pred_lasso)),
+            'mae': mean_absolute_error(y_test, y_pred_lasso),
+            'best_alpha': lasso.best_params_['alpha'],
+            'model': lasso.best_estimator_,
+            'y_pred': y_pred_lasso
+        }
+    except:
+        pass
+    
+    # Cross-validation
+    cv = KFold(n_splits=5, shuffle=True, random_state=42)
+    cv_scores = cross_val_score(LinearRegression(), X, y, scoring='r2', cv=cv)
+    
+    return {
+        'models': results,
+        'X_test_scaled': X_test_scaled,
+        'y_test': y_test,
+        'y_pred_ols': y_pred_ols,
+        'cv_scores': cv_scores,
+        'scaler': scaler
+    }
+
+# ============ VIF COMPUTATION ============
+def compute_vif_df(X_df: pd.DataFrame):
+    Xc = sm.add_constant(X_df.fillna(0))
+    vif_list = [variance_inflation_factor(Xc.values, i) for i in range(Xc.shape[1])]
+    return pd.DataFrame({'variable': Xc.columns, 'VIF': vif_list})
 
 # ---------------- Data Cleaning ----------------
 def clean_transform(df: pd.DataFrame) -> pd.DataFrame:
@@ -138,7 +290,7 @@ def clean_transform(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # ---------------- Load Data ----------------
-uploaded = st.file_uploader("Upload CSV file if there is s a issue in drive", type=["csv"])
+uploaded = st.file_uploader("Upload CSV file if there is a issue in drive", type=["csv"])
 df = None
 load_msg = ""
 
@@ -171,6 +323,9 @@ if df is None:
 
 st.sidebar.success(load_msg)
 df = clean_transform(df)
+
+# ============ CREATE ADVANCED FEATURES ============
+df = create_advanced_features(df)
 
 # ---------------- Filters ----------------
 st.sidebar.header("Filters")
@@ -246,7 +401,7 @@ with col1:
         fig_box = px.box(df_plot, x=group, y=num_for_box, points="all", title=f"{num_for_box} by {group}")
         st.plotly_chart(fig_box, use_container_width=True)
 
-# ---------------- Regression & Diagnostics ----------------
+# ============ ADVANCED REGRESSION & DIAGNOSTICS ============
 with col2:
     st.subheader("Regression Modeling")
     target_candidates = [c for c in ['stress_1to5','anxiety_1to5','sleep_hours'] if c in df.columns]
@@ -256,16 +411,57 @@ with col2:
         extra_cats = [f"C({c})" for c in ['year_of_study','gender'] if c in df.columns]
         predictors = st.multiselect("Predictors", options=default_preds + extra_cats, default=default_preds[:3])
 
+        modeling_mode = st.radio("Model Type", ["Standard OLS", "Advanced (Multiple Models)"], horizontal=True)
+
         if st.button("Fit model"):
             if predictors:
-                formula = f"{target} ~ " + " + ".join(predictors)
-                model_full = smf.ols(formula=formula, data=df_f).fit()
-                st.write("**Formula:**", formula)
-                st.write("**R²:**", round(model_full.rsquared,3))
-                st.dataframe(model_full.params.to_frame("coef"))
-                st.text_area("Model summary", model_full.summary().as_text(), height=300)
+                if modeling_mode == "Standard OLS":
+                    # Original OLS functionality
+                    formula = f"{target} ~ " + " + ".join(predictors)
+                    model_full = smf.ols(formula=formula, data=df_f).fit()
+                    st.write("**Formula:**", formula)
+                    st.write("**R²:**", round(model_full.rsquared,3))
+                    st.dataframe(model_full.params.to_frame("coef"))
+                    st.text_area("Model summary", model_full.summary().as_text(), height=300)
+                else:
+                    # Advanced multi-model approach
+                    numeric_preds = [p for p in predictors if not p.startswith('C(')]
+                    if numeric_preds:
+                        adv_results = fit_multiple_models_advanced(df_f, target, numeric_preds)
+                        if adv_results:
+                            st.write("### Advanced Model Comparison")
+                            
+                            # Model metrics table
+                            metrics_data = []
+                            for model_name, metrics in adv_results['models'].items():
+                                metrics_data.append({
+                                    'Model': model_name,
+                                    'R²': round(metrics['r2'], 4),
+                                    'RMSE': round(metrics['rmse'], 4),
+                                    'MAE': round(metrics['mae'], 4)
+                                })
+                            metrics_df = pd.DataFrame(metrics_data)
+                            st.dataframe(metrics_df, use_container_width=True)
+                            
+                            # CV Scores
+                            st.write(f"**Cross-validation R² (mean ± std):** {adv_results['cv_scores'].mean():.4f} ± {adv_results['cv_scores'].std():.4f}")
+                            
+                            # Residual diagnostics
+                            st.write("### Diagnostics")
+                            residuals = adv_results['y_test'] - adv_results['y_pred_ols']
+                            
+                            fig_diag = go.Figure()
+                            fig_diag.add_trace(go.Scatter(x=adv_results['y_pred_ols'], y=residuals, mode='markers', 
+                                                          name='Residuals', marker=dict(size=6, opacity=0.6)))
+                            fig_diag.add_hline(y=0, line_dash="dash", line_color="red")
+                            fig_diag.update_layout(title="Residuals vs Fitted", xaxis_title="Fitted Values", yaxis_title="Residuals")
+                            st.plotly_chart(fig_diag, use_container_width=True)
+                        else:
+                            st.error("Not enough data for advanced modeling. Try fewer predictors or get more samples.")
+                    else:
+                        st.warning("Advanced mode requires numeric predictors only (no categorical).")
 
-# ---------------- Export Filtered Data ----------------
+# ============ ORIGINAL EXPORT FUNCTIONALITY ============
 st.markdown("---")
 st.subheader("Export / Save")
 csv_bytes = df_f.to_csv(index=False).encode('utf-8')
