@@ -32,7 +32,7 @@ st.title("CSE303 — Group 3 project dashboard")
 # ---------------- Config ----------------
 DEFAULT_LOCAL = Path("./data/cleaned_survey_data.csv")
 DEFAULT_LOCAL.parent.mkdir(parents=True, exist_ok=True)  # ensure folder exists
-GOOGLE_DRIVE_LINK = "https://drive.google.com/file/d/1KLnVKougQauelIE9_83vr9uiZreArfoJ/view?usp=drive_link"
+GOOGLE_DRIVE_LINK = "https://drive.google.com/file/d/14NusTm-yg5Wex-EJkF2DHwvGcxRmtZtU/view?usp=drive_link"
 
 def extract_drive_id(url: str):
     if not isinstance(url, str):
